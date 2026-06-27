@@ -2,8 +2,16 @@ name: Build Pico 2 W UF2
 
 on:
   push:
+    branches:
+      - main
+      - master
+    tags:
+      - "v*"
   pull_request:
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -32,8 +40,23 @@ jobs:
         run: |
           cmake --build build
 
-      - name: Upload UF2
+      - name: Rename UF2
+        run: |
+          mkdir -p release
+          cp build/*.uf2 release/usbliter8-pico2w.uf2
+
+      - name: Upload Actions artifact
         uses: actions/upload-artifact@v4
         with:
           name: usbliter8-pico2w-uf2
-          path: build/*.uf2
+          path: release/usbliter8-pico2w.uf2
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            release/usbliter8-pico2w.uf2 \
+            --title "${GITHUB_REF_NAME}" \
+            --notes "Auto-built Pico 2 W UF2"
