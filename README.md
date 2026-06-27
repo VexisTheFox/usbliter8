@@ -24,6 +24,7 @@ Here is a list of the boards we tested the exploit on:
 * Waveshare RP2350 Zero
 * Pimoroni TINY2350
 * Raspberry Pi Pico 2
+* Raspberry Pi Pico 2 W (Support added by [**Vexi**](https://vexi123.cn) )
 
 RP2040 can be theoretically used as well, but this is currently **NOT** very stable and Apple A13 SoC does **NOT** work at all.
 
