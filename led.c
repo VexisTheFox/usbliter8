@@ -1,4 +1,6 @@
-#include <stdio.h>
+#include <stdbool.h>
+#include <stdint.h>
+
 #include "pico/time.h"
 #include "led.h"
 
@@ -9,17 +11,16 @@
 #if LED_RED_GREEN_SWAPPED
 #define NEOPIXEL_RGB(r, g, b) \
     ((g << 16) | (r << 8) | (b))
-
 #else
 #define NEOPIXEL_RGB(r, g, b) \
     ((g << 8) | (r << 16) | (b))
 #endif
 
-#define DISABLED    NEOPIXEL_RGB(0, 0, 0)
-#define GREEN       NEOPIXEL_RGB(1, 18, 2)
-#define BLUE        NEOPIXEL_RGB(0, 10, 18)
-#define AMBER       NEOPIXEL_RGB(18, 2, 0)
-#define RED         NEOPIXEL_RGB(24, 0, 0)
+#define DISABLED NEOPIXEL_RGB(0, 0, 0)
+#define GREEN    NEOPIXEL_RGB(1, 18, 2)
+#define BLUE     NEOPIXEL_RGB(0, 10, 18)
+#define AMBER    NEOPIXEL_RGB(18, 2, 0)
+#define RED      NEOPIXEL_RGB(24, 0, 0)
 
 extern void set_ws2812(uint32_t value);
 
@@ -36,15 +37,16 @@ void led_init(void) {
 #include "hardware/gpio.h"
 #include "hardware/pwm.h"
 
-#define PWM_WRAP    (256)
+#define PWM_WRAP (256)
+
 #define PWM_RGB(r, g, b) \
     ((r << 16) | (g << 8) | b)
 
-#define DISABLED    PWM_RGB(0, 0, 0)
-#define GREEN       PWM_RGB(10, 150, 50)
-#define BLUE        PWM_RGB(0, 30, 120)
-#define AMBER       PWM_RGB(170, 24, 0)
-#define RED         PWM_RGB(120, 0, 0)
+#define DISABLED PWM_RGB(0, 0, 0)
+#define GREEN    PWM_RGB(10, 150, 50)
+#define BLUE     PWM_RGB(0, 30, 120)
+#define AMBER    PWM_RGB(170, 24, 0)
+#define RED      PWM_RGB(120, 0, 0)
 
 static struct {
     uint r_slice;
@@ -57,12 +59,14 @@ static struct {
 
 void led_switch_color(uint32_t color) {
     pwm_set_chan_level(pwm_ctx.r_slice, pwm_ctx.r_chan, (color >> 16) & 0xFF);
-    pwm_set_chan_level(pwm_ctx.g_slice, pwm_ctx.g_chan, (color >> 8)  & 0xFF);
-    pwm_set_chan_level(pwm_ctx.b_slice, pwm_ctx.b_chan, (color >> 0)  & 0xFF);
+    pwm_set_chan_level(pwm_ctx.g_slice, pwm_ctx.g_chan, (color >> 8) & 0xFF);
+    pwm_set_chan_level(pwm_ctx.b_slice, pwm_ctx.b_chan, (color >> 0) & 0xFF);
 }
 
 void led_init(void) {
-    int r_pin = LED_RGB_RED_PIN, g_pin = LED_RGB_GREEN_PIN, b_pin = LED_RGB_BLUE_PIN;
+    int r_pin = LED_RGB_RED_PIN;
+    int g_pin = LED_RGB_GREEN_PIN;
+    int b_pin = LED_RGB_BLUE_PIN;
 
     gpio_set_function(r_pin, GPIO_FUNC_PWM);
     gpio_set_function(g_pin, GPIO_FUNC_PWM);
@@ -86,7 +90,6 @@ void led_init(void) {
     pwm_set_chan_level(pwm_ctx.b_slice, pwm_ctx.b_chan, PWM_WRAP);
 
 #if LED_RGB_ACTIVE_LOW
-    // I hate this API
     pwm_set_output_polarity(pwm_ctx.r_slice, true, true);
     pwm_set_output_polarity(pwm_ctx.g_slice, true, true);
     pwm_set_output_polarity(pwm_ctx.b_slice, true, true);
@@ -102,16 +105,14 @@ void led_init(void) {
 #include "hardware/pwm.h"
 #include "hardware/gpio.h"
 
-#define PWM_WRAP    (768)
+#define PWM_WRAP (768)
 
 static struct {
     uint slice;
     uint chan;
-
     repeating_timer_t timer;
     bool blink_en;
     bool blink_curr_state;
-
     repeating_timer_t breathing_timer;
     uint breathing_level;
     bool breathing_falling;
@@ -128,8 +129,8 @@ void led_init(void) {
     pwm_set_enabled(led_ctx.slice, true);
 }
 
-#define ENABLED     (PWM_WRAP - 1)
-#define DISABLED    (0)
+#define ENABLED  (PWM_WRAP - 1)
+#define DISABLED (0)
 
 void led_toggle(uint on) {
     pwm_set_chan_level(led_ctx.slice, led_ctx.chan, on);
@@ -138,7 +139,6 @@ void led_toggle(uint on) {
 bool _led_timer_cb(__unused repeating_timer_t *rt) {
     led_toggle(led_ctx.blink_curr_state ? ENABLED : DISABLED);
     led_ctx.blink_curr_state = !led_ctx.blink_curr_state;
-
     return true;
 }
 
@@ -186,7 +186,48 @@ void led_set_breathing(bool on) {
     }
 }
 
+#elif LED_PICO_STATUS
+
+#include "pico/status_led.h"
+
+static struct {
+    repeating_timer_t timer;
+    bool blink_en;
+    bool blink_curr_state;
+} led_ctx = { 0 };
+
+void led_init(void) {
+    status_led_init();
+    status_led_set_state(false);
+}
+
+bool _led_timer_cb(__unused repeating_timer_t *rt) {
+    status_led_set_state(led_ctx.blink_curr_state);
+    led_ctx.blink_curr_state = !led_ctx.blink_curr_state;
+    return true;
+}
+
+void led_set_blinking(uint64_t period_ms) {
+    if (led_ctx.blink_en) {
+        cancel_repeating_timer(&led_ctx.timer);
+        led_ctx.blink_en = false;
+    }
+
+    if (period_ms) {
+        add_repeating_timer_ms(period_ms, _led_timer_cb, NULL, &led_ctx.timer);
+        led_ctx.blink_en = true;
+    } else {
+        status_led_set_state(false);
+    }
+}
+
+#else
+
+void led_init(void) {
+}
+
 #endif
+
 
 #if LED_NEOPIXEL || LED_RGB_PWM
 
@@ -212,7 +253,6 @@ bool _led_timer_cb(__unused repeating_timer_t *rt) {
     }
 
     led_switch_color(color);
-
     led_ctx.blink_curr_state = !led_ctx.blink_curr_state;
 
     return true;
@@ -234,36 +274,30 @@ void led_set_blinking(uint64_t period_ms) {
 
 void led_set_state(int state) {
     switch (state) {
-        case LED_STATE_BOOTING: {
-            led_set_color(AMBER);
-            led_set_blinking(200);
-            break;
-        }
+    case LED_STATE_BOOTING:
+        led_set_color(AMBER);
+        led_set_blinking(200);
+        break;
 
-        case LED_STATE_IDLE: {
-            led_set_color(AMBER);
-            led_set_blinking(0);
-            break;
-        }
+    case LED_STATE_IDLE:
+        led_set_color(AMBER);
+        led_set_blinking(0);
+        break;
 
-        case LED_STATE_RUNNING: {
-            led_set_color(BLUE);
-            // blinking here breaks reliability, IDK
-            led_set_blinking(0);
-            break;
-        }
+    case LED_STATE_RUNNING:
+        led_set_color(BLUE);
+        led_set_blinking(0);
+        break;
 
-        case LED_STATE_SUCCESS: {
-            led_set_color(GREEN);
-            led_set_blinking(0);
-            break;
-        }
+    case LED_STATE_SUCCESS:
+        led_set_color(GREEN);
+        led_set_blinking(0);
+        break;
 
-        case LED_STATE_ERROR: {
-            led_set_color(RED);
-            led_set_blinking(0);
-            break;
-        }
+    case LED_STATE_ERROR:
+        led_set_color(RED);
+        led_set_blinking(0);
+        break;
     }
 }
 
@@ -271,42 +305,64 @@ void led_set_state(int state) {
 
 void led_set_state(int state) {
     switch (state) {
-        case LED_STATE_BOOTING: {
-            led_set_blinking(200);
-            break;
-        }
+    case LED_STATE_BOOTING:
+        led_set_blinking(200);
+        break;
 
-        case LED_STATE_IDLE: {
-            led_set_breathing(true);
-            break;
-        }
+    case LED_STATE_IDLE:
+        led_set_breathing(true);
+        break;
 
-        case LED_STATE_RUNNING: {
-            led_set_breathing(false);
-            led_set_blinking(100);
-            break;
-        }
+    case LED_STATE_RUNNING:
+        led_set_breathing(false);
+        led_set_blinking(100);
+        break;
 
-        case LED_STATE_SUCCESS: {
-            led_set_blinking(0);
-            led_toggle(ENABLED);
-            break;
-        }
+    case LED_STATE_SUCCESS:
+        led_set_blinking(0);
+        led_toggle(ENABLED);
+        break;
 
-        case LED_STATE_ERROR: {
-            led_set_blinking(0);
-            led_toggle(DISABLED);
-            break;
-        }
+    case LED_STATE_ERROR:
+        led_set_blinking(0);
+        led_toggle(DISABLED);
+        break;
+    }
+}
+
+#elif LED_PICO_STATUS
+
+void led_set_state(int state) {
+    switch (state) {
+    case LED_STATE_BOOTING:
+        led_set_blinking(200);
+        break;
+
+    case LED_STATE_IDLE:
+        led_set_blinking(0);
+        status_led_set_state(true);
+        break;
+
+    case LED_STATE_RUNNING:
+        led_set_blinking(100);
+        break;
+
+    case LED_STATE_SUCCESS:
+        led_set_blinking(0);
+        status_led_set_state(true);
+        break;
+
+    case LED_STATE_ERROR:
+        led_set_blinking(0);
+        status_led_set_state(false);
+        break;
     }
 }
 
 #else
 
-void led_init(void) {
-}
-
 void led_set_state(int state) {
+    (void)state;
 }
 
 #endif
